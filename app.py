@@ -1,4 +1,6 @@
 """Streamlit front end: upload an audiogram, check the detections, edit, read the 4-frequency averages."""
+import hashlib
+
 import cv2
 import pandas as pd
 import streamlit as st
@@ -6,6 +8,7 @@ import streamlit as st
 from audiogram.calc import AVG_FREQS, FREQS, four_freq_average
 from audiogram.pipeline import analyze
 from audiogram.report import build_report, round_half_up
+from paste_box import paste_image
 
 LABELS = {
     ("right", "AC"): "右耳 氣導 (O)",
@@ -16,14 +19,21 @@ LABELS = {
 
 st.set_page_config(page_title="聽力圖分析", layout="wide")
 st.title("純音聽力圖分析")
-st.caption("上傳聽力圖 → 自動讀出各頻率聽閾 → 可手動修正 → 計算 500/1000/2000/4000 Hz 四頻平均")
+st.caption("貼上或上傳聽力圖 → 自動讀出各頻率聽閾 → 可手動修正 → 計算 500/1000/2000/4000 Hz 四頻平均")
 
 st.warning("此為公開網站：請勿上傳含可辨識病患姓名、病歷號等個人資料的圖片。")
-upload = st.file_uploader("聽力圖圖片", type=["png", "jpg", "jpeg", "bmp"])
-if upload is None:
+mode = st.radio("圖片來源", ["貼上截圖", "上傳檔案"], horizontal=True, label_visibility="collapsed")
+if mode == "貼上截圖":
+    data = paste_image(key="paste")
+    if data is None:
+        st.info("用 Win+Shift+S（或 Print Screen）截下聽力圖，點一下上方的框，再按 Ctrl+V。")
+else:
+    upload = st.file_uploader("聽力圖圖片", type=["png", "jpg", "jpeg", "bmp"])
+    data = upload.getvalue() if upload is not None else None
+if data is None:
     st.stop()
+image_id = hashlib.md5(data).hexdigest()[:8]  # new image -> new widget keys, so the text boxes reset
 
-data = upload.getvalue()
 try:
     result = analyze(data)
 except Exception as exc:  # grid/axis detection can fail on unusual layouts
@@ -72,7 +82,7 @@ if result.comments is None:
 else:
     text_col, crop_col = st.columns([3, 2])
     with text_col:
-        comments_text = st.text_area("Comments", result.comments.text, height=220, key=f"comments-{upload.file_id}", label_visibility="collapsed")
+        comments_text = st.text_area("Comments", result.comments.text, height=220, key=f"comments-{image_id}", label_visibility="collapsed")
     with crop_col:
         st.image(cv2.cvtColor(result.comments.crop(result.image), cv2.COLOR_BGR2RGB), width="content")
 
@@ -85,7 +95,7 @@ note_texts = []
 for i, note in enumerate(result.notes):
     text_col, crop_col = st.columns([3, 2])
     with text_col:
-        note_texts.append(st.text_input(note.kind, note.text, key=f"note-{upload.file_id}-{i}"))
+        note_texts.append(st.text_input(note.kind, note.text, key=f"note-{image_id}-{i}"))
     with crop_col:
         st.image(cv2.cvtColor(note.crop(result.image), cv2.COLOR_BGR2RGB), width="content")
 

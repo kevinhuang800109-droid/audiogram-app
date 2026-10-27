@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Source Sans Pro", "Microsoft JhengHei", sans-serif; }
+  #box {
+    box-sizing: border-box; height: 150px; border: 2px dashed #888; border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    color: #666; cursor: pointer; outline: none; text-align: center; padding: 8px;
+  }
+  #box:focus { border-color: #ff4b4b; background: rgba(255, 75, 75, 0.06); }
+  #box.drag { border-color: #ff4b4b; background: rgba(255, 75, 75, 0.1); }
+  #msg { font-size: 15px; }
+  #sub { font-size: 12px; opacity: .75; }
+  #thumb { max-height: 70px; max-width: 90%; display: none; border: 1px solid #ccc; }
+  @media (prefers-color-scheme: dark) { #box { color: #ccc; border-color: #888; } }
+</style>
+</head>
+<body>
+<div id="box" tabindex="0">
+  <img id="thumb" alt="">
+  <div id="msg">點一下這裡，然後按 Ctrl+V 貼上截圖</div>
+  <div id="sub">Win+Shift+S 框選聽力圖後即可貼上；也可把圖片檔拖曳到此</div>
+</div>
+<script>
+  // Minimal Streamlit component protocol (no build step needed).
+  function send(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+  }
+  var box = document.getElementById("box"), msg = document.getElementById("msg"), thumb = document.getElementById("thumb");
+
+  function handleFile(file) {
+    if (!file || !/^image\//.test(file.type)) { msg.textContent = "剪貼簿裡沒有圖片，請重新截圖"; return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      thumb.src = reader.result; thumb.style.display = "block";
+      msg.textContent = "已貼上，分析中…（再按 Ctrl+V 可換另一張）";
+      send("streamlit:setComponentValue", { value: { data: reader.result, ts: Date.now() }, dataType: "json" });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  document.addEventListener("paste", function (e) {
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === "file" && /^image\//.test(items[i].type)) {
+        e.preventDefault(); handleFile(items[i].getAsFile()); return;
+      }
+    }
+    msg.textContent = "剪貼簿裡沒有圖片，請重新截圖";
+  });
+  box.addEventListener("click", function () { box.focus(); });
+  box.addEventListener("dragover", function (e) { e.preventDefault(); box.classList.add("drag"); });
+  box.addEventListener("dragleave", function () { box.classList.remove("drag"); });
+  box.addEventListener("drop", function (e) {
+    e.preventDefault(); box.classList.remove("drag");
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+
+  window.addEventListener("message", function (e) {
+    if (e.data && e.data.type === "streamlit:render") { send("streamlit:setFrameHeight", { height: 160 }); }
+  });
+  send("streamlit:componentReady", { apiVersion: 1 });
+  send("streamlit:setFrameHeight", { height: 160 });
+</script>
+</body>
+</html>
