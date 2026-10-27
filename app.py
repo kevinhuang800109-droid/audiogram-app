@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from audiogram.calc import AVG_FREQS, FREQS, four_freq_average
+from audiogram.disability import assess
 from audiogram.pipeline import analyze
 from audiogram.report import build_report, round_half_up
 from paste_box import paste_image
@@ -60,16 +61,39 @@ with right:
 
     st.subheader("四頻平均 (500/1000/2000/4000 Hz)")
     cols = st.columns(2)
+    averages = {}
     for i, (key, label) in enumerate(LABELS.items()):
         row = edited.loc[label]
         th = {f: (None if pd.isna(row[f"{f} Hz"]) else float(row[f"{f} Hz"])) for f in FREQS}
         avg = four_freq_average(th)
+        averages[key] = avg
         missing = [f for f in AVG_FREQS if th[f] is None]
         with cols[i % 2]:
             if avg is None:
                 st.metric(label, "—", help=f"缺少 {', '.join(map(str, missing))} Hz")
             else:
                 st.metric(label, f"{round_half_up(avg)} dB")
+
+    st.subheader("雙耳整體障礙比率（鑑定作業辦法 b230）")
+    age = st.radio("年齡", ["六歲以上", "未滿六歲"], horizontal=True)
+    ha = assess(averages[("right", "AC")], averages[("left", "AC")], age == "六歲以上")
+    if not ha["ok"]:
+        st.info(ha["reason"])
+    else:
+        c1, c2 = st.columns(2)
+        c1.metric(f"優耳聽障比率（{ha['better_ear']}）", f"{ha['better_ratio']}%")
+        c2.metric(f"劣耳聽障比率（{ha['worse_ear']}）", f"{ha['worse_ratio']}%")
+        st.metric("雙耳整體障礙比率", f"{ha['overall']}%")
+        st.metric("b230 聽覺功能障礙程度", ha["grade"])  # full width: the grade text is long
+        with st.expander("計算過程"):
+            st.markdown(
+                f"- 氣導四頻平均 PTA（四捨五入到 0.1）：優耳（{ha['better_ear']}）**{ha['better_pta']} dB**，"
+                f"劣耳（{ha['worse_ear']}）**{ha['worse_pta']} dB**\n"
+                f"- 單耳聽障比率 = (PTA − 25) × 1.5%（上限 100%，25 dB 以下為 0%）：優耳 **{ha['better_ratio']}%**，劣耳 **{ha['worse_ratio']}%**\n"
+                f"- 雙耳整體 = (優耳 × 5 + 劣耳 × 1) ÷ 6 = ({ha['better_ratio']} × 5 + {ha['worse_ratio']}) ÷ 6 = **{ha['overall']}%**\n"
+                f"- 年齡：{age}"
+            )
+        st.caption("依使用者提供的辦法公式計算（單耳比率先四捨五入到 0.1%，再算整體）。僅供參考，正式鑑定以主管機關與鑑定醫師為準。")
 
     st.download_button("下載 CSV", edited.to_csv().encode("utf-8-sig"), "audiogram.csv", "text/csv")
 
