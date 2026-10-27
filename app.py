@@ -5,6 +5,7 @@ import streamlit as st
 
 from audiogram.calc import AVG_FREQS, FREQS, four_freq_average
 from audiogram.pipeline import analyze
+from audiogram.report import build_report, round_half_up
 
 LABELS = {
     ("right", "AC"): "右耳 氣導 (O)",
@@ -58,19 +59,20 @@ with right:
             if avg is None:
                 st.metric(label, "—", help=f"缺少 {', '.join(map(str, missing))} Hz")
             else:
-                st.metric(label, f"{avg:.1f} dB")
+                st.metric(label, f"{round_half_up(avg)} dB")
 
     st.download_button("下載 CSV", edited.to_csv().encode("utf-8-sig"), "audiogram.csv", "text/csv")
 
 st.divider()
 st.subheader("Comments（以下全部文字）")
 st.caption("「Comments」以下的所有文字與數字，可直接修改後複製。OCR 可能讀錯，請對照右側原圖。")
+comments_text = ""
 if result.comments is None:
     st.info("圖中未找到 Comments。")
 else:
     text_col, crop_col = st.columns([3, 2])
     with text_col:
-        st.text_area("Comments", result.comments.text, height=220, key=f"comments-{upload.file_id}", label_visibility="collapsed")
+        comments_text = st.text_area("Comments", result.comments.text, height=220, key=f"comments-{upload.file_id}", label_visibility="collapsed")
     with crop_col:
         st.image(cv2.cvtColor(result.comments.crop(result.image), cv2.COLOR_BGR2RGB), width="content")
 
@@ -79,9 +81,21 @@ st.subheader("附註文字 (Tympanogram / SRT / SRS)")
 st.caption("照抄圖中文字，不做分析。OCR 可能讀錯，請對照右側原圖裁切後直接修改。")
 if not result.notes:
     st.info("圖中未找到 Tymp / SRT / SRS 文字。")
+note_texts = []
 for i, note in enumerate(result.notes):
     text_col, crop_col = st.columns([3, 2])
     with text_col:
-        st.text_input(note.kind, note.text, key=f"note-{upload.file_id}-{i}")
+        note_texts.append(st.text_input(note.kind, note.text, key=f"note-{upload.file_id}-{i}"))
     with crop_col:
         st.image(cv2.cvtColor(note.crop(result.image), cv2.COLOR_BGR2RGB), width="content")
+
+st.divider()
+st.subheader("報告文字（可直接複製）")
+st.caption("由上方修改後的聽閾、Tymp/SRT/SRS 與 Comments 整理而成；缺值不會顯示。可在框內再編輯，Ctrl+A 全選後複製。")
+edited_thresholds = {
+    key: {f: (None if pd.isna(edited.loc[label, f"{f} Hz"]) else float(edited.loc[label, f"{f} Hz"])) for f in FREQS}
+    for key, label in LABELS.items()
+}
+report = build_report(edited_thresholds, note_texts, comments_text)
+# keyed on the text itself so the box refreshes whenever a value above is corrected
+st.text_area("報告", report, height=300, key=f"report-{hash(report)}", label_visibility="collapsed")
